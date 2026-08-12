@@ -1,0 +1,25 @@
+-- Sharing metadata: read by tooling and the manager detail pane.
+return {
+  summary = "The Gen 4 physical/special split for Gold, decided per move instead of per type -- so Crunch comes off Attack and Shadow Ball off Special Attack.",
+  author = "MadeinTaly",
+  -- shown in the manager's detail pane next to the author
+  support = "https://linktr.ee/made_in_taly",
+  tags = { "battle", "mechanic", "gen2", "split" },
+  compat = { modApi = 2, games = { "gen2" } },
+  differences = {
+    added = {
+      "SPLIT (off by default): a move's physical/special category decided per move, the Gen 4 way, instead of from its type -- the Dark moves above all, since Dark is a special type whose moves are nearly all physical in Gen 4",
+    },
+    changed = {
+      "with SPLIT on, damage, stat stages, the critical rules and the Reflect/Light Screen choice all follow the move's own category rather than its type's",
+    },
+    known = {
+      "Counter and Mirror Coat still answer by the type rule: whether a hit counted as physical or special for them is decided after the battle.damage hook returns, and there is no seam there -- so with SPLIT on, Counter answers a Crunch as though it were special",
+      "the split is applied through the battle.damage hook rather than as a moves registry patch, because Gold's Damage.isPhysical takes a TYPE id and never reads a move's own category: the data answer would have shipped green and changed nothing",
+      "the formula is handed a COPY of the type table, never the shared one -- writing a category onto the real record would move every move of that type for the rest of the battle",
+      "only the exceptions are listed: a move whose Gen 4 category already matches its type needs no entry, and the suite fails the build on an entry that agrees with the type rule",
+      "a move id this cart does not carry is skipped in silence, so the same table survives a move-adding mod underneath it",
+      "this is the Gen 2 counterpart of Modern Kanto, not a replacement: five of that mod's six pieces have no object on Gold, which is why they are two mods and not one",
+    },
+  },
+}
