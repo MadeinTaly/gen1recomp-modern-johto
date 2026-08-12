@@ -12,17 +12,24 @@
 -- from Gen 1's LAYER_3. And an Atlas for Kanto is an Atlas for the wrong
 -- region.
 --
--- What carries over is the split -- and it means MORE here than it does on
--- Red, not less. Gen 1 has ONE Special stat, so its split is half a change:
--- moving a move between the two columns still lands on the same number for
--- both attack and defence. Gold already splits Special into specialAttack
--- and specialDefense, so deciding the category per move is the whole Gen 4
--- change, working against stats that actually differ.
+-- What carries over from 0.1.0 is the split -- and it means MORE here than
+-- it does on Red, not less. Gen 1 has ONE Special stat, so its split is half
+-- a change: moving a move between the two columns still lands on the same
+-- number for both attack and defence. Gold already splits Special into
+-- specialAttack and specialDefense, so deciding the category per move is the
+-- whole Gen 4 change, working against stats that actually differ.
+--
+-- 0.2.0 adds one more piece, and drops two candidates that turned out to be
+-- nothing on Gold -- see "the two that did not ship" near the AI section
+-- below for the file:line case against each, because a toggle that changes
+-- nothing is exactly the failure this house style exists to avoid.
 --
 --   SPLIT   physical/special per move, not per type   (Gen 4)
+--   AI      opponents that read type effectiveness even when their own
+--           class was never told to
 --
--- Off by default: it changes the balance, and a player should meet the game
--- the cart shipped unless they asked otherwise.
+-- Off by default: both change the balance, and a player should meet the
+-- game the cart shipped unless they asked otherwise.
 --
 -- ------- why this is a hook and not data, which on Red it was
 --
@@ -141,6 +148,11 @@ return function(mod)
     -- reads the option per damage roll, so turning it off puts the cart's
     -- own numbers back without a restart.
     { key = "split", label = "SPLIT", type = "toggle", default = false },
+    -- Off by default, same reasoning as SPLIT: a trainer that currently
+    -- ignores type effectiveness is playing the game the cart shipped, not
+    -- a broken one. This is a registry write (see below), so it takes
+    -- effect on the next launch rather than the next battle.
+    { key = "ai", label = "AI", type = "toggle", default = false },
   })
 
   local function opt(key)
@@ -237,4 +249,108 @@ return function(mod)
     if not ok or corrected == nil then return next(c) end
     return next(corrected)
   end)
+
+  -- ------- AI: type effectiveness for every trainer, not just the ones told
+  -- ------- to look at it
+  --
+  -- src/mods/Schemas.lua routes `ai_classes` to a Gen 2 target
+  -- (`gen2AiClasses`), and src/battle/gen2/Ai.lua:1570 (Ai.layersFor) is the
+  -- one place that reads it: for a trainer class whose AI word has ANY bit
+  -- set, it runs the ten vanilla scoring passes the class's flags select
+  -- (Ai.LAYER_ORDER, Ai.lua:1543) and then any further registry record whose
+  -- own `kind` is "layer" -- a mod layer with no `flag` field runs for every
+  -- such class, gated on nothing narrower than "this class runs AI at all"
+  -- (Ai.lua:1585). That is the seam this feature writes to. It is Gen 2's
+  -- OWN id space: Ai.LAYER_ORDER's ten names (BASIC, TYPES, OFFENSIVE,
+  -- AGGRESSIVE, STATUS, RISKY, SETUP, OPPORTUNIST, CAUTIOUS, SMART) have
+  -- nothing to do with Gen 1's LAYER_1..LAYER_3, which is a different
+  -- registry population entirely -- and the id this mod registers,
+  -- `JOHTO_TYPE_AWARE`, is not one of either list.
+  --
+  -- ------- why this is a NEW layer and not a patch of Gold's own TYPES pass
+  --
+  -- Modern Kanto patches Gen 1's LAYER_3 in place, because LAYER_3 has a bug
+  -- to fix: AIGetTypeEffectiveness only reads the FIRST matching row, so a
+  -- dual-type defender is scored on half its typing. Gold's TYPES pass
+  -- (Ai.lua:1446) has no such bug -- its score function calls
+  -- src/battle/gen2/Damage.lua:115 (Damage.typeMultiplier), which floors one
+  -- matchup row into the next and so already multiplies BOTH of a dual-type
+  -- defender's rows together, the same way the real damage formula does.
+  -- Patching TYPES here would therefore replace a correct function with an
+  -- identical one -- a write that validates, lints, packs and changes
+  -- nothing, which is the one failure this house style exists to catch.
+  --
+  -- What IS true of Gold: TYPES only runs for a class whose AI word has the
+  -- TYPES bit set (TRNATTR_AI_MOVE_WEIGHTS bit 2), and plenty of trainer
+  -- classes carry other bits -- BASIC, OFFENSIVE, AGGRESSIVE and the rest --
+  -- without it, so their AI never once asks whether a move is resisted or
+  -- super effective. That is the real gap, and it is Gen 2's own shape of
+  -- the same complaint Modern Kanto's AI row answers on Red: an opponent
+  -- that fights blind to type as long as its class was never told to look.
+  --
+  -- The new layer is a second, independent copy of the TYPES arithmetic
+  -- (dismiss what is immune, encourage what is super effective, discourage
+  -- what is resisted -- the same three answers Ai.lua:1446-1454 gives), but
+  -- it SKIPS a class that already carries the TYPES bit: Ai.has(view.flags,
+  -- "TYPES") is checked first, so a trainer Gold already made type-aware is
+  -- scored by the vanilla pass alone and never double-counted by this one.
+  local Ai = require("src.battle.gen2.Ai")
+
+  -- Golf: LOWER is more encouraged, the same convention every vanilla layer
+  -- in Ai.lua uses (`dec [hl]` encourages, `inc [hl]` discourages). The
+  -- three deltas below are Gold's own TYPES numbers, not invented ones.
+  local function aiScore(view, def, score)
+    if not def then return score end
+    if (def.power or 0) <= 0 then return score end
+    if Ai.has(view.flags, "TYPES") then return score end
+
+    local chart = (view.context and view.context.typeChart) or {}
+    local defenderTypes = (view.defender and view.defender.types) or {}
+    local matchup = Damage.typeMultiplier(def.type, defenderTypes,
+      chart.matchups)
+
+    if matchup == 0 then return score + 10 end   -- immune: dismiss it
+    if matchup > 10 then return score - 1 end     -- super effective
+    if matchup < 10 then return score + 1 end     -- resisted
+    return score
+  end
+
+  -- A throw inside the AI takes the enemy's whole turn down with it
+  -- (Ai.choose has no pcall of its own around a layer's score function), so
+  -- an unexpected shape here just leaves the running score untouched.
+  local function aiScoreGuarded(view, def, score)
+    local ok, result = pcall(aiScore, view, def, score)
+    if ok then return result end
+    return score
+  end
+
+  local AI_LAYER_ID = "JOHTO_TYPE_AWARE"
+
+  if opt("ai") then
+    pcall(function()
+      mod.content.ai_classes:register(AI_LAYER_ID,
+        { kind = "layer", score = aiScoreGuarded })
+    end)
+  end
+
+  -- ------- the two candidates that did not ship
+  --
+  -- CRITICAL HITS. The brief this mod started from describes Gold picking a
+  -- critical from a table keyed on the species' base Speed, the way Gen 1
+  -- does, with the Gen 3+ answer being a stage ladder instead. Gold does not
+  -- work that way already: src/battle/gen2/Damage.lua:11-14 states outright
+  -- that "Gen 1 instead derived the chance from base Speed" and that Gen 2's
+  -- own mechanic IS the chance ladder (data/battle/critical_hit_chances.asm,
+  -- Damage.lua:26-27's 1/15, 1/8, 1/4, 1/3, 1/2, raised a rung by Focus
+  -- Energy, a high-crit move or Scope Lens -- Damage.lua:80-95). That is the
+  -- Gen 3 mechanic already: Ruby's own ladder is 1/16, 1/8, 1/4, 1/3, 1/2,
+  -- the same shape off the same stages, the 15-versus-16 gap being nothing
+  -- more than an 8-bit roll against a 256 one. The `battle.crit` hook does
+  -- fire on Gold (src/battle/gen2/Battle.lua:1040), and its ctx really does
+  -- drop `ruleset` the way the compat doc says -- but there is no base-Speed
+  -- table under it to replace. A toggle that swapped the ladder for the
+  -- ladder would validate, lint, pack and ship, and change nothing at all.
+  --
+  -- EXP. SHARE. Not attempted this release; dropped before any code or test
+  -- was written for it.
 end

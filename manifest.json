@@ -1,7 +1,7 @@
 {
   "id": "modern_johto",
   "name": "Modern Johto",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "api": 2,
   "games": ["gen2"],
   "entry": "main.lua",
@@ -14,5 +14,5 @@
   "optional_dependencies": [],
   "conflicts": [],
   "permissions": ["engine_internals"],
-  "description": "The Gen 4 physical/special split for Pokemon Gold, decided per move instead of per type -- so Crunch comes off Attack, Shadow Ball off Special Attack, and Gyarados finally throws Hydro Pump off the stat it was never meant to use. Gold already splits Special into two stats, which is what makes the per-move category the real Gen 4 change here rather than the half-measure it is on a game with one Special. Off by default, because it changes the balance. The Gen 2 counterpart of Modern Kanto, which stays where it is: five of that mod's six pieces have nothing to fix on Gold."
+  "description": "The Gen 4 physical/special split for Pokemon Gold, decided per move instead of per type -- so Crunch comes off Attack, Shadow Ball off Special Attack, and Gyarados finally throws Hydro Pump off the stat it was never meant to use. Gold already splits Special into two stats, which is what makes the per-move category the real Gen 4 change here rather than the half-measure it is on a game with one Special. Now also an AI toggle: a trainer class that never carries the TYPES bit reads type effectiveness anyway, through a second ai_classes layer that steps aside for any class Gold already made type-aware. Both toggles off by default, because both change the balance. The Gen 2 counterpart of Modern Kanto, which stays where it is: five of that mod's six pieces have nothing to fix on Gold."
 }

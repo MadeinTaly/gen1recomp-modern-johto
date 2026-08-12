@@ -138,4 +138,86 @@ T.check(typePhysical("DARK") == false,
 
 run.release()
 
+-- ------- AI: a class that never carries the TYPES bit
+--
+-- The real seam is Ai.lua:1570 (Ai.layersFor) and Ai.lua:1606 (Ai.choose),
+-- so this drives those, not the mod's own file: the mod's layer only
+-- exists once mods:load has folded `ai_classes` into `data.gen2AiClasses`,
+-- and Ai.choose is the one thing that ever reads that merge.
+local Ai = require("src.battle.gen2.Ai")
+
+-- FIRE beats GRASS 2x and NORMAL has no row at all in the fixture triangle
+-- (tests/fixture_data/type_chart.lua), so NORMAL reads neutral -- exactly
+-- the "no opinion" case a type-blind class already gives both moves.
+local DEFS = {
+  NORMAL_MOVE = { id = "NORMAL_MOVE", type = "NORMAL", power = 40 },
+  FIRE_MOVE = { id = "FIRE_MOVE", type = "FIRE", power = 40 },
+}
+
+-- `random` always answers 0, so a tie is broken by picking the FIRST tied
+-- move -- which is why NORMAL_MOVE is listed first: with no type opinion at
+-- all both moves tie at the base score and the deterministic roll has to
+-- land on the one listed first, not "whichever happens to be super
+-- effective". A version of this test that could not tell that apart would
+-- pass by accident.
+local function chooseWith(data)
+  local id = Ai.choose({
+    moves = { { id = "NORMAL_MOVE", pp = 10 }, { id = "FIRE_MOVE", pp = 10 } },
+    moveDef = function(mid) return DEFS[mid] end,
+    attacker = { level = 50, stats = { attack = 50, specialAttack = 50 },
+                 types = { "NORMAL" } },
+    defender = { stats = { defense = 50, specialDefense = 50 },
+                 types = { "GRASS" }, hp = 100 },
+    typeChart = { types = Data.type_chart.types,
+                  matchups = Data.type_chart.matchups },
+    -- BASIC only: the class runs AI (Ai.choose's flags==0 fast path is
+    -- skipped) but never carries the TYPES bit, which is the exact class
+    -- of trainer this feature is for.
+    flags = Ai.FLAGS.BASIC,
+    random = function() return 0 end,
+    data = data,
+  })
+  return id
+end
+
+local function loadWithAi(aiOn)
+  local data = freshData()
+  local restore = SaveData.loadOptions
+  SaveData.loadOptions = function(fs)
+    local opts = realLoadOptions(fs)
+    opts.mods = opts.mods or {}
+    opts.mods.modern_johto = true
+    opts.modOptions = { modern_johto = { ai = aiOn } }
+    return opts
+  end
+  local r = T.sdk.loadMod(DIR, { data = data, generation = 2 })
+  SaveData.loadOptions = restore
+  return r, data
+end
+
+-- Switched ON: the registry write actually landed, and it changes which
+-- move a BASIC-only class picks.
+local aiRunOn, aiDataOn = loadWithAi(true)
+T.eq(aiRunOn.mod and aiRunOn.mod.state, "loaded",
+  "the AI feature's own load runs clean on gen 2 (" ..
+  tostring(aiRunOn.mod and aiRunOn.mod.skipReason) .. ")")
+T.eq(#aiRunOn.errors, 0, "and reports no errors")
+T.check(aiDataOn.gen2AiClasses and aiDataOn.gen2AiClasses.JOHTO_TYPE_AWARE
+  ~= nil, "the JOHTO_TYPE_AWARE layer is in the merged ai_classes registry")
+T.eq(chooseWith(aiDataOn), "FIRE_MOVE",
+  "with AI on, a BASIC-only class still prefers the super effective move")
+aiRunOn.release()
+
+-- At the shipped default (off): the layer is never registered, so the same
+-- BASIC-only class is exactly as type-blind as vanilla Gold leaves it.
+local aiRunOff, aiDataOff = loadWithAi(false)
+T.eq(#aiRunOff.errors, 0, "the default (AI off) load is clean")
+T.check(aiDataOff.gen2AiClasses == nil
+  or aiDataOff.gen2AiClasses.JOHTO_TYPE_AWARE == nil,
+  "and JOHTO_TYPE_AWARE is NOT registered at the shipped default")
+T.eq(chooseWith(aiDataOff), "NORMAL_MOVE",
+  "at the shipped default, the BASIC-only class has no type opinion and " ..
+  "falls to the deterministic tie-break")
+aiRunOff.release()
+
 T.finish("modern_johto")

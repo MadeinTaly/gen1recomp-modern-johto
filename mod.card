@@ -1,17 +1,19 @@
 -- Sharing metadata: read by tooling and the manager detail pane.
 return {
-  summary = "The Gen 4 physical/special split for Gold, decided per move instead of per type -- so Crunch comes off Attack and Shadow Ball off Special Attack.",
+  summary = "The Gen 4 physical/special split for Gold, decided per move instead of per type, plus an AI toggle that gives type-blind trainer classes a type opinion.",
   author = "MadeinTaly",
   -- shown in the manager's detail pane next to the author
   support = "https://linktr.ee/made_in_taly",
-  tags = { "battle", "mechanic", "gen2", "split" },
+  tags = { "battle", "mechanic", "gen2", "split", "ai" },
   compat = { modApi = 2, games = { "gen2" } },
   differences = {
     added = {
       "SPLIT (off by default): a move's physical/special category decided per move, the Gen 4 way, instead of from its type -- the Dark moves above all, since Dark is a special type whose moves are nearly all physical in Gen 4",
+      "AI (off by default): a second ai_classes layer that gives type effectiveness an opinion for any trainer class Gold never gave the TYPES bit to, without double-counting a class that already has it",
     },
     changed = {
       "with SPLIT on, damage, stat stages, the critical rules and the Reflect/Light Screen choice all follow the move's own category rather than its type's",
+      "with AI on, a class with no TYPES bit dismisses what it is immune to, leans toward what is super effective and away from what is resisted -- the same numbers Gold's own TYPES pass uses, just reaching classes that pass never covered",
     },
     known = {
       "Counter and Mirror Coat still answer by the type rule: whether a hit counted as physical or special for them is decided after the battle.damage hook returns, and there is no seam there -- so with SPLIT on, Counter answers a Crunch as though it were special",
@@ -19,6 +21,8 @@ return {
       "the formula is handed a COPY of the type table, never the shared one -- writing a category onto the real record would move every move of that type for the rest of the battle",
       "only the exceptions are listed: a move whose Gen 4 category already matches its type needs no entry, and the suite fails the build on an entry that agrees with the type rule",
       "a move id this cart does not carry is skipped in silence, so the same table survives a move-adding mod underneath it",
+      "AI is a NEW layer, not a patch of Gold's own TYPES pass: TYPES already multiplies a dual-type defender's two matchup rows together correctly (unlike Gen 1's buggy LAYER_3), so patching it would replace a correct function with an identical one and change nothing",
+      "critical hits and an EXP. SHARE toggle were both considered for 0.2.0 and dropped: Gold's crit is already the Gen 3-style stage ladder, not the Gen 1 base-Speed table the brief assumed (src/battle/gen2/Damage.lua:11-14), so there was nothing left to replace",
       "this is the Gen 2 counterpart of Modern Kanto, not a replacement: five of that mod's six pieces have no object on Gold, which is why they are two mods and not one",
     },
   },

@@ -1,9 +1,12 @@
 # gen1recomp-modern-johto
 
-The Gen 4 physical/special split for **Pokémon Gold**, on
-[Gen1Recomp](https://github.com/bryanthaboi/gen1recomp) — decided per move
-instead of per type, so Crunch comes off Attack and Shadow Ball off Special
-Attack.
+Two switchable pieces for **Pokémon Gold**, on
+[Gen1Recomp](https://github.com/bryanthaboi/gen1recomp):
+
+- The Gen 4 physical/special split — decided per move instead of per type,
+  so Crunch comes off Attack and Shadow Ball off Special Attack.
+- An AI toggle that gives a type opinion to trainer classes Gold never gave
+  one to.
 
 This is the Gen 2 counterpart of
 [Modern Kanto](https://github.com/MadeinTaly/gen1recomp-modern-kanto), and a
@@ -29,12 +32,63 @@ is the honest state, not a bug.
 | Row | Values | Meaning |
 | --- | --- | --- |
 | `SPLIT` | on / off | decide a move's physical/special category per move, the Gen 4 way |
+| `AI` | on / off | a trainer class with no TYPES bit reads type effectiveness anyway |
 
-**Off by default**, because it changes the balance. The cart is not *wrong*
-about which stat Crunch uses — it is only older than the answer. It takes
-effect on the next battle rather than the next launch: the option is read per
-damage roll, so turning it back off restores the cart's own numbers without a
-restart.
+Both **off by default**, because both change the balance. The cart is not
+*wrong* about which stat Crunch uses, or about which trainers weigh type —
+it is only older than the answer, or was never told to look.
+
+`SPLIT` takes effect on the next battle rather than the next launch: the
+option is read per damage roll, so turning it back off restores the cart's
+own numbers without a restart. `AI` is a registry write (see below), so it
+takes effect on the next launch, the way Modern Kanto's own AI row does.
+
+## AI — coverage, not a correction
+
+Gold's trainer AI scores every move it knows and picks the lowest score
+(`src/battle/gen2/Ai.lua`, `engine/battle/ai/scoring.asm`). Which of its ten
+scoring passes run for a given trainer is a per-class bit field
+(`TRNATTR_AI_MOVE_WEIGHTS`), and one of those ten, `TYPES`, is the pass that
+reads type effectiveness — but only for a class whose bits include it. Every
+other class, `BASIC`-only trainers included, never once asks whether a move
+is resisted or super effective.
+
+`TYPES` itself has no bug to fix: its score function calls
+`Damage.typeMultiplier` (`src/battle/gen2/Damage.lua:115`), which floors one
+matchup row into the next, so a dual-type defender's two rows are already
+multiplied together correctly — unlike Gen 1's `LAYER_3`, which Modern
+Kanto patches because `AIGetTypeEffectiveness` there only reads the first
+matching row. Patching `TYPES` on Gold would replace a correct function with
+an identical one: a registry write that validates, lints, packs and ships,
+and changes nothing at all.
+
+So this mod registers a second, independent layer, `JOHTO_TYPE_AWARE`, under
+the `ai_classes` registry (`Ai.layersFor`, `src/battle/gen2/Ai.lua:1570`).
+It runs for any class whose AI word has *any* bit set, and its first check is
+whether the class already carries the `TYPES` bit — if it does, the layer
+gets out of the way rather than scoring the same move twice. Where it does
+run, its numbers are `TYPES`' own: dismiss what is immune, encourage what is
+super effective, discourage what is resisted. Wrapped in `pcall`, because
+`Ai.choose` carries no `pcall` of its own around a layer's score function,
+and a throw inside the AI takes the enemy's whole turn down with it.
+
+## Two candidates that did not ship
+
+**Critical hits.** Gen 1 rolls a critical off the species' base Speed; Gen 3
+onward uses a stage ladder instead, and that was the plan for a third
+toggle. Gold already runs the ladder. `src/battle/gen2/Damage.lua:11-14`
+says so directly — the base-Speed derivation is credited to Gen 1 only, and
+Gen 2's own mechanic *is* the chance ladder (`1/15, 1/8, 1/4, 1/3, 1/2`,
+raised a rung by Focus Energy, a high-crit move or Scope Lens —
+`Damage.lua:26-27`, `:80-95`). That is the same shape as Ruby's own ladder
+(`1/16, 1/8, 1/4, 1/3, 1/2`) off the same stages; the 15-versus-16 gap is an
+8-bit roll against a 256 one, not a different mechanic. The `battle.crit`
+hook does fire on Gold (`Battle.lua:1040`), but there is no base-Speed table
+left under it to replace, so a toggle here would have shipped green and
+changed nothing.
+
+**EXP. SHARE, the Ruby/Sapphire way.** Considered, then dropped before any
+code or test was written for it.
 
 ## Why this matters more on Gold than on Red
 
@@ -112,6 +166,15 @@ The suite drives the real `battle.damage` chain with an attacker whose Attack
 and Special Attack are far apart, so a split that did not land would produce
 the same number and could not pass by accident. It also asserts the shared
 type record is unchanged afterwards.
+
+For AI, it loads the mod twice — once with `AI` forced on, once at the
+shipped default — and both times calls `Ai.choose` itself against a
+`BASIC`-only class choosing between a super effective move and a neutral
+one, with a deterministic tie-break `random`. With `AI` on it picks the
+super effective move; at the default it falls to the tie-break, exactly the
+class Gold leaves type-blind today. Both runs also check the registry
+directly: `JOHTO_TYPE_AWARE` is present in the merged `ai_classes` table
+when the option is on, and absent at the default.
 
 ## Legal
 
